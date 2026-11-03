@@ -1,4 +1,3 @@
-
 name: Stellar Burgers API Tests
 
 on:
@@ -8,6 +7,9 @@ on:
   pull_request:
     branches:
       - main
+
+permissions:
+  contents: read
 
 jobs:
   tests:
@@ -28,13 +30,57 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run tests with Allure
+        run: pytest --alluredir=allure-results
+
+      - name: Set up Java
+        if: always()
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Allure CLI
+        if: always()
+        run: npm install -g allure-commandline
+
+      - name: Generate Allure HTML report
+        if: always()
         run: |
-          pytest --alluredir=allure_results
+          if [ -d allure-results ] && [ "$(find allure-results -type f | wc -l)" -gt 0 ]; then
+            allure generate allure-results --clean -o allure-report
+          else
+            mkdir -p allure-report
+            echo '<h1>Allure results are not available</h1>' > allure-report/index.html
+          fi
 
       - name: Upload Allure results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-results
-          path: allure_results/
+          path: allure-results/
           if-no-files-found: warn
+
+      - name: Upload Allure report for GitHub Pages
+        if: always() && github.event_name == 'push'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: allure-report
+
+  deploy:
+    needs: tests
+    if: always() && github.event_name == 'push' && needs.tests.result != 'cancelled'
+    runs-on: ubuntu-latest
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
